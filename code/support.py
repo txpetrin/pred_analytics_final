@@ -4,35 +4,68 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import tensorflow as tf
 from tensorflow.keras.models import Model
-from tensorflow.keras.layers import Input, LSTM, Dense, TimeDistributed, Reshape
+from tensorflow.keras.layers import Input, LSTM, Dense, Flatten, Reshape, SimpleRNN
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import MinMaxScaler, StandardScaler
+from sklearn.metrics import mean_squared_error, mean_absolute_error
+from statsmodels.tsa.holtwinters import ExponentialSmoothing
+from statsforecast.models import AutoARIMA
+from statsmodels.graphics.tsaplots import plot_acf
+from statsmodels.tsa.seasonal import seasonal_decompose
+from statsforecast.arima import arima_string
+
+import os
+from pathlib import Path
+
+os.chdir("..")
+
+data_path = os.path.join(os.getcwd(), "data")
+train_path = os.path.join(data_path, "train2.csv")
+submission_path = os.path.join(data_path, "submitformat.csv")
+
+ets_path = os.path.join(data_path, "ets_submission.csv")
+arima_path = os.path.join(data_path, "arima_submission.csv")
+nn_path = os.path.join(data_path, "nn_submission.csv")
+rnn_path = os.path.join(data_path, "rnn_submission.csv")
+
+
 
 # Declare the constants
-TIME_STEPS = 15
-PREDICT_STEPS = 5
+TIME_STEPS = 4
+PREDICT_STEPS = 4
 FEATURES = 1 
-ALPHA = 0.001
-EPOCHS = 100
-EPOCHS_TEST = 100
-BATCHES = 30
+ALPHA = 0.0001
+EPOCHS = 50
+EPOCHS_TEST = 50
+BATCHES = 8
+
+# Build the RNN model
+def build_nn_model(time_steps, predict_steps, features):
+    
+    inputs = Input(shape=(time_steps, features), name="Input_Sequence")
+    flatten = Flatten(name="Flatten")(inputs)
+    
+    dense = Dense(128, name="Dense_1", activation = "relu")(flatten)
+    dense = Dense(predict_steps * features, activation="relu", name="DenseFinal")(dense)
+    
+    outputs = Reshape((predict_steps, features), name="Reshape_Output")(dense)
+    
+    model = Model(inputs, outputs, name="NN_Predictor")
+    return model
+
 
 # Build the RNN model
 def build_rnn_model(time_steps, predict_steps, features):
     
     inputs = Input(shape=(time_steps, features), name="Input_Sequence")
     
-    lstm = LSTM(256, return_sequences=True, name="LSTM_1", dropout = 0.2)(inputs)
-    lstm = LSTM(256, return_sequences=True, name="LSTM_2", dropout = 0.2)(lstm)
-    lstm = LSTM(128, return_sequences=False, name="LSTM_4", dropout = 0.2)(lstm)
-    
+    lstm = SimpleRNN(64, return_sequences=False, name="RNN_1")(inputs)
     dense = Dense(predict_steps * features, activation="linear", name="Dense")(lstm)
     
     outputs = Reshape((predict_steps, features), name="Reshape_Output")(dense)
     
     model = Model(inputs, outputs, name="RNN_Predictor")
     return model
-
 
 def window(observations):
     X = []
@@ -49,11 +82,9 @@ def window(observations):
 
 
 def test_window(X, y, rnn_model, scaler, index):
-    print(scaler.inverse_transform(X[index].reshape(-1,1)))
 
     single_input = X[index] 
 
-    # Reshape input to (1, 12, 1)
     single_input_reshaped = single_input.reshape(1, TIME_STEPS, 1)
 
     # Predict 5 future steps
